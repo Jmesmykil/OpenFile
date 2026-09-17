@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""A user must not be able to break the device in a way one command does not fix."""
+import json
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _sandbox  # noqa: E402,F401  must come before devkit_functions
+
+PACKAGE_DIR = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PACKAGE_DIR))
+
+import devkit_functions as df  # noqa: E402
+
+ENV = "# account\nAPI_KEY=k\n# audio\nSPEAKER_VOLUME=50\nMIC_SENSITIVITY=160\nAUTO_INTERRUPT=false\n"
+
+
+class Sandbox(unittest.TestCase):
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="openfile_safe_"))
+        self.drive, self.home = self.tmp / "drive", self.tmp / "home"
+        self.caps = self.home / "openhome_devkit" / "local_capabilities"
+        self.caps.mkdir(parents=True)
+        self.drive.mkdir()
+        (self.home / ".env").write_text(ENV)
+        self.patches = [mock.patch.object(df, "SNAPSHOT_DIR", str(self.tmp / "snapshots")),
+                        mock.patch.object(df, "STATE_FILE", str(self.tmp / "state.json")),
+                        mock.patch.object(df, "LOCK_FILE", str(self.tmp / "lock"))]
+        for patch in self.patches:
+            patch.start()
+        self.engine = df.DriveSyncEngine(drive_path=self.drive, caps_dir=self.caps, device_home=str(self.home))
+
+    def tearDown(self):
+        for patch in self.patches:
+            patch.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def ability(self, name, body="version = 1\n", **extra):
+        folder = self.caps / name
+        folder.mkdir(parents=True)
+        (folder / "devkit_functions.py").write_text(body)
+        for filename, text in extra.items():
+            (folder / filename.replace("__", ".")).write_text(text)
+        return folder
+
+    def on_drive(self, name, rel="devkit_functions.py"):
+        return self.drive / "abilities" / name / rel
+
+    def log(self):
+        return self.engine.log_file.read_text()
+
+
+class TestUndo(Sandbox):
+    def test_a_bad_edit_that_parses_is_reversed_by_one_undo(self):
+        """The case no check can catch: valid Python, wrong behaviour."""
+        device = self.ability("weather") / "devkit_functions.py"
+        self.engine.run_full_sync()
+        self.on_drive("weather").write_text("version = 'broken but it parses'\n")
+        self.engine.run_full_sync()
+        self.assertIn("broken", device.read_text())
+
+        result = self.engine.undo_last()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(device.read_text(), "version = 1\n")
+        self.assertEqual(self.on_drive("weather").read_text(), "version = 1\n", "the volume must show what is running")
+        self.assertEqual(self.engine.run_full_sync()["abilities_synced"], 0, "and the next sync must not redo the edit")
+        self.assertEqual(device.read_text(), "version = 1\n")
+
+    def test_undo_takes_back_a_newly_added_ability_without_losing_it(self):
+        self.ability("keep")
+        self.engine.run_full_sync()
+        (self.drive / "abilities" / "fresh").mkdir()
+        self.on_drive("fresh").write_text("new = 1\n")
+        self.engine.run_full_sync()
+        self.assertTrue((self.caps / "fresh").is_dir())
+
+        self.engine.undo_last()
+
+        self.assertFalse((self.caps / "fresh").exists())
+        self.assertFalse((self.drive / "abilities" / "fresh").exists())
+        self.assertEqual([p.read_text() for p in (self.drive / "backup").rglob("devkit_functions.py")], ["new = 1\n"])
+        self.engine.run_full_sync()
+        self.assertFalse((self.caps / "fresh").exists(), "it must not creep back")
+        self.assertTrue((self.caps / "keep").is_dir())
+
+    def test_undo_walks_back_one_change_at_a_time(self):
+        device = self.ability("weather") / "devkit_functions.py"
+        self.engine.run_full_sync()
+        for version in (2, 3):
+            self.on_drive("weather").write_text(f"version = {version}\n")
+            self.engine.run_full_sync()   # back to back, well inside one second
+        self.assertEqual(device.read_text(), "version = 3\n")
+        self.engine.undo_last()
+        self.assertEqual(device.read_text(), "version = 2\n")
+        self.engine.undo_last()
+        self.assertEqual(device.read_text(), "version = 1\n")
+        self.assertFalse(self.engine.undo_last()["success"])
+
+    def test_a_setting_change_is_reversed_too(self):
+        self.engine.run_full_sync()
+        settings = self.drive / "config" / "settings.env"
+        settings.write_text(settings.read_text().replace("SPEAKER_VOLUME=50", "SPEAKER_VOLUME=95"))
+        self.engine.run_full_sync()
+        self.assertIn("SPEAKER_VOLUME=95", (self.home / ".env").read_text())
+
+        self.engine.undo_last()
+
+        self.assertEqual((self.home / ".env").read_text(), ENV, "every line, comments included, as it was")
+        self.assertIn("SPEAKER_VOLUME=50", settings.read_text())
+
+    def test_old_snapshots_are_trimmed(self):
+        root = pathlib.Path(df.SNAPSHOT_DIR)
+        for i in range(8):
+            (root / f"2030010{i}-000000").mkdir(parents=True)
+        (root / "not-a-snapshot").mkdir()
+        self.assertEqual(df.keep_newest(root, 3), 5)
+        self.assertEqual(sorted(p.name for p in root.iterdir()),
+                         ["20300105-000000", "20300106-000000", "20300107-000000", "not-a-snapshot"])
+
+
+class TestGuards(Sandbox):
+    def test_openfile_cannot_be_broken_from_the_volume(self):
+        with mock.patch.object(df, "SELF_NAME", "openfile"):
+            device = self.ability("openfile", body="working = 1\n") / "devkit_functions.py"
+            self.engine.run_full_sync()
+            self.on_drive("openfile").write_text("import nothing_that_exists\n")
+            (self.drive / "abilities" / "openfile" / "planted.py").write_text("x = 1\n")
+            result = self.engine.run_full_sync()
+
+            self.assertEqual(device.read_text(), "working = 1\n")
+            self.assertFalse((self.caps / "openfile" / "planted.py").exists())
+            self.assertEqual(self.on_drive("openfile").read_text(), "working = 1\n", "the volume shows the running copy again")
+            self.assertEqual(len(result["warnings"]), 1)
+            self.assertIn("ATTENTION", self.log())
+            held = sorted(p.name for p in (self.drive / "backup").rglob("*.py"))
+            self.assertEqual(held, ["devkit_functions.py", "planted.py"], "the user's work is kept")
+            self.assertEqual(self.engine.run_full_sync()["warnings"], [], "and it does not nag on every pass")
+
+    def test_the_owner_can_lift_that_protection(self):
+        with mock.patch.object(df, "SELF_NAME", "openfile"), mock.patch.object(df, "ALLOW_SELF_EDIT", True):
+            device = self.ability("openfile", body="working = 1\n") / "devkit_functions.py"
+            self.engine.run_full_sync()
+            self.on_drive("openfile").write_text("working = 2\n")
+            self.engine.run_full_sync()
+            self.assertEqual(device.read_text(), "working = 2\n")
+
+    def test_broken_json_is_never_sent(self):
+        device = self.ability("weather", config__json='{"name": "ok"}') / "config.json"
+        self.engine.run_full_sync()
+        self.on_drive("weather", "config.json").write_text('{"name": "missing quote}')
+        self.on_drive("weather").write_text("version = 2\n")
+        result = self.engine.run_full_sync()
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("not valid JSON", result["errors"][0])
+        self.assertEqual(json.loads(device.read_text()), {"name": "ok"})
+        self.assertEqual((self.caps / "weather" / "devkit_functions.py").read_text(), "version = 1\n")
+
+    def test_settings_outside_their_range_are_refused_and_explained(self):
+        self.engine.run_full_sync()
+        settings = self.drive / "config" / "settings.env"
+        settings.write_text("SPEAKER_VOLUME=900\nMIC_SENSITIVITY=loud\nAUTO_INTERRUPT=maybe\n")
+        result = self.engine.run_full_sync()
+        self.assertEqual((self.home / ".env").read_text(), ENV)
+        self.assertEqual(len(result["warnings"]), 1)
+        for fragment in ("SPEAKER_VOLUME=900", "from 0 to 100", "MIC_SENSITIVITY=loud", "true or false"):
+            self.assertIn(fragment, result["warnings"][0])
+        self.assertIn("SPEAKER_VOLUME=50", settings.read_text(), "the file is set back so it shows the truth")
+
+    def test_a_good_setting_beside_a_bad_one_is_still_applied(self):
+        self.engine.run_full_sync()
+        (self.drive / "config" / "settings.env").write_text("SPEAKER_VOLUME=70\nMIC_SENSITIVITY=9999\n")
+        self.engine.run_full_sync()
+        env = (self.home / ".env").read_text()
+        self.assertIn("SPEAKER_VOLUME=70", env)
+        self.assertIn("MIC_SENSITIVITY=160", env)
+
+    def test_every_setting_has_a_rule(self):
+        self.assertEqual(set(df.SETTINGS_RULES), set(df.SETTINGS_KEYS))
+        self.assertEqual(df.check_setting("SPEAKER_VOLUME", "0"), "")
+        self.assertEqual(df.check_setting("SPEAKER_VOLUME", "100"), "")
+        self.assertNotEqual(df.check_setting("SPEAKER_VOLUME", "101"), "")
+        self.assertNotEqual(df.check_setting("SPEAKER_VOLUME", "-1"), "")
+        self.assertEqual(df.check_setting("AUTO_INTERRUPT", "TRUE"), "")
+
+    def test_a_failed_wifi_join_returns_to_the_previous_network(self):
+        wifi = self.drive / "config" / "wifi.txt"
+        wifi.parent.mkdir(parents=True)
+        wifi.write_text("SSID=Cafe\nPASSWORD=wrongpass\n")
+        calls = []
+
+        def fake_run(cmd, **_):
+            calls.append(cmd)
+            return mock.Mock(returncode=1 if "connect" in cmd else 0, stdout="", stderr="secrets were required")
+
+        with mock.patch.object(df.shutil, "which", return_value="/usr/bin/nmcli"), \
+                mock.patch.object(df, "active_wifi_ssid", return_value="Home"), \
+                mock.patch.object(df, "_run", return_value="Home Network:802-11-wireless\nlo:loopback\n"), \
+                mock.patch.object(df.subprocess, "run", side_effect=fake_run):
+            ok, _ = self.engine.sync_wifi()
+        self.assertFalse(ok)
+        self.assertEqual(calls[-1], ["nmcli", "con", "up", "id", "Home Network"])
+        self.assertNotIn("wrongpass", wifi.read_text())
+        self.assertIn("ATTENTION", self.log())
+
+    def test_old_backups_are_trimmed_and_recent_ones_kept(self):
+        for i in range(12):
+            (self.drive / "backup" / f"203001{i:02d}-000000").mkdir(parents=True)
+        with mock.patch.object(df, "BACKUP_KEEP", 4):
+            self.engine.run_full_sync()
+        left = sorted(p.name for p in (self.drive / "backup").iterdir())
+        self.assertEqual(left, ["20300108-000000", "20300109-000000", "20300110-000000", "20300111-000000"])
+
+    def test_desktop_scrap_files_are_swept_and_nothing_else(self):
+        self.ability("weather")
+        self.engine.run_full_sync()
+        folder = self.drive / "abilities" / "weather"
+        old = [folder / "._devkit_functions.py", folder / ".DS_Store", self.drive / "Thumbs.db"]
+        fresh = folder / "._still_copying.py"
+        keep = [folder / "devkit_functions.py", folder / "._not_a_scrap_dir", self.drive / "backup" / "x" / "._kept"]
+        keep[1].mkdir()
+        keep[2].parent.mkdir(parents=True)
+        for f in old + [fresh, keep[2]]:
+            f.write_text("scrap")
+        for f in old + [keep[2]]:
+            os.utime(f, (1, 1))
+        self.engine.run_full_sync()
+        self.assertEqual([f.exists() for f in old], [False, False, False])
+        self.assertTrue(fresh.exists(), "a file that may still be arriving is left alone")
+        self.assertTrue(all(k.exists() for k in keep), "real files, folders and backups are never swept")
+
+    def test_the_volume_explains_itself(self):
+        self.engine.run_full_sync()
+        guide = (self.drive / "abilities" / "READ ME FIRST.txt").read_text()
+        for phrase in ("undo", "requirements.txt", "openhome deploy", "held back"):
+            self.assertIn(phrase, guide)
+        self.assertIn("disconnects you", (self.drive / "config" / "READ ME FIRST.txt").read_text())
+        self.assertIn("CAREFUL", (self.drive / "config" / "wifi.txt").read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()

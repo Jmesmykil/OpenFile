@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenFile volume
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/default/openfile
+ExecStart=/usr/bin/python3 @INSTALL_DIR@/devkit_functions.py enable_drive
+ExecStop=/usr/bin/python3 @INSTALL_DIR@/devkit_functions.py disable_drive
+
+[Install]
+WantedBy=multi-user.target

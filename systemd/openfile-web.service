@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenFile web page
+After=network.target openfile-gadget.service
+Wants=openfile-gadget.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/openfile
+ExecStart=/usr/bin/python3 @INSTALL_DIR@/device/web_portal.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

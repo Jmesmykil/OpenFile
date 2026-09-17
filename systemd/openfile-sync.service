@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenFile sync watcher
+After=openfile-gadget.service
+Requires=openfile-gadget.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/openfile
+ExecStart=/usr/bin/python3 @INSTALL_DIR@/devkit_functions.py watch_drive --debounce 2.0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

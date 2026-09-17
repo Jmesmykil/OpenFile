@@ -1,0 +1,30 @@
+{
+  "unique_name": "openfile",
+  "name": "OpenFile",
+  "description": "OpenFile gives the DevKit a modding volume. Edit abilities, sounds and device settings from any computer or phone, and the device applies them.",
+  "category": "local",
+  "matching_hotwords": [
+    "open file",
+    "openfile",
+    "open file status",
+    "open file refresh",
+    "open file undo",
+    "open file history",
+    "open file reseed",
+    "open file restart",
+    "open file ports",
+    "open file eject",
+    "refresh abilities",
+    "reload abilities",
+    "reseed the drive",
+    "restart open file",
+    "turn on drive",
+    "turn off drive",
+    "eject drive",
+    "drive status",
+    "sync drive",
+    "sync flash drive",
+    "eject flash drive",
+    "check ports"
+  ]
+}

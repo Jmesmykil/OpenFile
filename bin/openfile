@@ -1,0 +1,95 @@
+#!/bin/bash
+# openfile: command line control for the OpenFile volume on an OpenHome DevKit.
+set -e
+
+if [ -r /etc/default/openfile ]; then
+  # shellcheck disable=SC1091
+  . /etc/default/openfile
+fi
+SELF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+if [ -f "$SELF_DIR/devkit_functions.py" ]; then
+  DEVKIT_FN="$SELF_DIR/devkit_functions.py"
+else
+  DEVKIT_FN="${LOCAL_CAPABILITIES_DIR:-/home/openhome/openhome_devkit/local_capabilities}/openfile/devkit_functions.py"
+fi
+if [ ! -f "$DEVKIT_FN" ]; then
+  echo "openfile: cannot find devkit_functions.py. Re-run install.sh." >&2
+  exit 1
+fi
+
+SUDO=""
+[ "$(id -u)" -eq 0 ] || SUDO="sudo"
+call() { $SUDO python3 "$DEVKIT_FN" "$@"; }
+
+# Print the spoken summary, then the data, from a function's JSON reply.
+show() {
+  python3 -c '
+import json, sys
+reply = json.load(sys.stdin)
+print(reply.get("spoken_response") or "")
+def walk(value, depth=0):
+    pad = "  " * depth
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(item, (dict, list)) and item:
+                print(f"{pad}{key}:"); walk(item, depth + 1)
+            else:
+                print(f"{pad}{key}: {item if item not in ({}, []) else chr(45)}")
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                print(pad + ", ".join(f"{k}={v}" for k, v in item.items()))
+            else:
+                print(f"{pad}{item}")
+data = reply.get("data") or {}
+if data:
+    print(); walk(data)
+sys.exit(0 if reply.get("success") else 1)
+'
+}
+
+usage() {
+  cat <<'USAGE'
+Usage: openfile <command>
+
+  status      free space, abilities on the volume, which transports are up
+  ports       everything plugged into the DevKit
+  on          mount the volume and fill it from the device
+  off         apply pending edits, then unmount
+  refresh     apply edits now instead of waiting for the watcher
+  undo        reverse the last change OpenFile made to the device
+  history     list the changes that can be undone
+  reseed      rebuild the volume from the device (old copies go to backup/)
+  restart     restart the OpenFile services
+  password    choose a password for the network share (turns guest access off)
+              `openfile password --remove` goes back to the default (admin)
+  flash       read a flash drive plugged into a USB-A port
+  eject-flash unmount the flash drive
+  health      installation check
+  logs        last 30 lines of the sync log
+  watch       run the sync watcher in the foreground
+  web         run the web page in the foreground
+USAGE
+}
+
+case "${1:-help}" in
+  status)       call get_status | show ;;
+  ports)        call get_ports | show ;;
+  on|mount)     call enable_drive | show ;;
+  off|eject)    call disable_drive | show ;;
+  refresh|sync) call sync_drive | show ;;
+  undo)         call undo_last_change | show ;;
+  history)      call show_history | show ;;
+  reseed)       call reseed_drive | show ;;
+  restart)      call restart_services | show ;;
+  password)     if [ "${2:-}" = "--remove" ]; then $SUDO "$(dirname "$DEVKIT_FN")/install.sh" --no-password
+                else $SUDO "$(dirname "$DEVKIT_FN")/install.sh" --set-password; fi ;;
+  flash)        call sync_usb | show ;;
+  eject-flash)  call eject_usb | show ;;
+  health)       call health | show ;;
+  logs)         tail -n 30 "${OPENFILE_MOUNT:-/mnt/openfile}/logs/sync_history.log" 2>/dev/null || echo "No sync log yet." ;;
+  watch)        shift; call watch_drive "$@" ;;
+  web)          shift; call web "$@" ;;
+  help|-h|--help) usage ;;
+  *) echo "openfile: unknown command '$1'" >&2; usage >&2; exit 1 ;;
+esac
