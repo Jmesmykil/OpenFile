@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- A settings file outside its owner's home, such as the stress suite's sandbox, no longer moves the live speaker or microphone. In 0.3.1 the stress suite's copy set the real speaker to its own level.
+
 ## 0.3.1
 
 - Mic sensitivity and speaker volume take effect as soon as you change them. They were written to the device's settings file, but OpenHome only reads that file when it boots, so a new level waited for the next restart.

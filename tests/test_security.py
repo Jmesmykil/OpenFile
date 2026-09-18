@@ -111,13 +111,29 @@ class TestSecretsStayOnDevice(Sandbox):
         (config / "settings.env").write_text("MIC_SENSITIVITY=170\nSPEAKER_VOLUME=53\n")
         calls = []
         ok = mock.Mock(returncode=0, stdout="", stderr="")
+        import pwd
+        me = pwd.getpwuid(os.getuid())
+        owner_lives_here = mock.Mock(pw_name=me.pw_name, pw_dir=str(self.home))
         with mock.patch.dict(os.environ, {"OPENFILE_AUDIO": "1"}), \
+             mock.patch.object(pwd, "getpwuid", return_value=owner_lives_here), \
              mock.patch.object(df.shutil, "which", return_value="/usr/bin/pactl"), \
              mock.patch.object(df.subprocess, "run", side_effect=lambda cmd, **k: calls.append(cmd) or ok):
             self.assertTrue(self.engine.sync_settings())
         verbs = {tuple(c[-3:]) for c in calls}
         self.assertIn(("set-source-volume", "@DEFAULT_SOURCE@", "170%"), verbs)
         self.assertIn(("set-sink-volume", "@DEFAULT_SINK@", "53%"), verbs)
+
+    def test_a_copy_of_the_settings_never_moves_the_live_mixer(self):
+        # The device stress suite writes a sandboxed .env whose owner is the real account.
+        # Its levels once reached the real speaker. Only the owner's own home may.
+        from unittest import mock
+        calls = []
+        ok = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.dict(os.environ, {"OPENFILE_AUDIO": "1"}), \
+             mock.patch.object(df.shutil, "which", return_value="/usr/bin/pactl"), \
+             mock.patch.object(df.subprocess, "run", side_effect=lambda cmd, **k: calls.append(cmd) or ok):
+            applied = self.engine.apply_audio_levels({"SPEAKER_VOLUME": "92", "MIC_SENSITIVITY": "170"})
+        self.assertEqual((applied, calls), ([], []))
 
     def test_audio_is_never_touched_under_the_test_sandbox(self):
         self.assertEqual(self.engine.apply_audio_levels({"MIC_SENSITIVITY": "170"}), [])

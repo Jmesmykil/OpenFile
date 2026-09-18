@@ -56,7 +56,7 @@ class StressTest:
                         LOCAL_CAPABILITIES_DIR=str(self.caps), OPENFILE_STATE=str(self.tmp / "state.json"),
                         OPENFILE_SNAPSHOTS=str(self.tmp / "snapshots"),
                         OPENFILE_LOCK=str(self.tmp / "lock"), OPENFILE_PID=str(self.tmp / "pid"),
-                        OPENFILE_PLAIN_DIR="1", OPENFILE_CHIMES="0", OPENFILE_PIP="0", OPENFILE_USB_SCAN="0",
+                        OPENFILE_PLAIN_DIR="1", OPENFILE_CHIMES="0", OPENFILE_PIP="0", OPENFILE_USB_SCAN="0", OPENFILE_AUDIO="0",
                         OPENFILE_WEB_PORT=str(self.port), OPENFILE_WEB_TOKEN="")
         self.procs = []
         self.secrets = []

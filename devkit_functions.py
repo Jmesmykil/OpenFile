@@ -89,7 +89,7 @@ SKIP_ABILITY_PATTERNS = tuple(
     p.strip() for p in (os.environ.get("OPENFILE_SKIP_PATTERNS") or
                         "*.retired*,*.disabled,*.bak,*.old").split(",") if p.strip()
 )
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 # Where the rest of OpenFile comes from when only this file arrived. OpenHome
 # installs an ability's files onto the DevKit itself, but not the folders the
 # installer needs, so the first "turn on drive" fetches this release.
@@ -1015,14 +1015,20 @@ class DriveSyncEngine:
         """
         if os.environ.get("OPENFILE_AUDIO", "1") == "0" or not levels or not shutil.which("pactl"):
             return []
+        import pwd
+        home = pathlib.Path(self.device_home)
         try:
-            uid = pathlib.Path(self.device_home).stat().st_uid
-        except OSError:
+            uid = home.stat().st_uid
+            owner = pwd.getpwuid(uid)
+        except (OSError, KeyError):
+            return []
+        # Only the .env in its owner's own home is the one OpenHome reads. A copy anywhere
+        # else (a test, a sandbox, a staging folder) must never move the live mixer.
+        if pathlib.Path(owner.pw_dir).resolve() != home.resolve():
             return []
         prefix = ["pactl"]
         if os.geteuid() == 0 and uid != 0:
-            import pwd
-            prefix = ["runuser", "-u", pwd.getpwuid(uid).pw_name, "--",
+            prefix = ["runuser", "-u", owner.pw_name, "--",
                       "env", f"XDG_RUNTIME_DIR=/run/user/{uid}", "pactl"]
         applied = []
         for key, (verb, target) in AUDIO_LEVELS.items():
