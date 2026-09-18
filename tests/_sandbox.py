@@ -53,4 +53,5 @@ os.environ.update({
     "OPENFILE_PIP": "0",
     "OPENFILE_USB_SCAN": "0",
     "OPENFILE_CHIMES": "0",
+    "OPENFILE_AUDIO": "0",
 })

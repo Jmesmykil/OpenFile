@@ -69,6 +69,12 @@ RESYNC_SECONDS = float(os.environ.get("OPENFILE_RESYNC_SECONDS") or 60)
 
 # The device .env holds the account API key and broker password. Only these
 # tuning keys ever leave the device or are accepted back from the drive.
+# The two settings OpenHome applies to the mixer at boot, and how to apply them now.
+AUDIO_LEVELS = {
+    "SPEAKER_VOLUME": ("set-sink-volume", "@DEFAULT_SINK@"),
+    "MIC_SENSITIVITY": ("set-source-volume", "@DEFAULT_SOURCE@"),
+}
+
 SETTINGS_KEYS = (
     "SPEAKER_VOLUME",
     "MIC_SENSITIVITY",
@@ -83,7 +89,7 @@ SKIP_ABILITY_PATTERNS = tuple(
     p.strip() for p in (os.environ.get("OPENFILE_SKIP_PATTERNS") or
                         "*.retired*,*.disabled,*.bak,*.old").split(",") if p.strip()
 )
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 # Where the rest of OpenFile comes from when only this file arrived. OpenHome
 # installs an ability's files onto the DevKit itself, but not the folders the
 # installer needs, so the first "turn on drive" fetches this release.
@@ -996,6 +1002,46 @@ class DriveSyncEngine:
                 lines[i] = f"{key}={pending.pop(key)}"
         lines.extend(f"{k}={v}" for k, v in pending.items())
         write_atomic(env_dest, "\n".join(lines) + "\n")
+        self.apply_audio_levels({k: v for k, v in updates.items() if k in AUDIO_LEVELS})
+
+    def apply_audio_levels(self, levels: dict) -> list:
+        """Put the speaker and microphone where .env now says, at once.
+
+        OpenHome reads these two from .env only when the device boots, so a change written
+        here used to wait silently for the next reboot. On a DevKit that booted with the
+        microphone at 57 and was then set to 170 here, the voice loop sat nearly deaf all day.
+        This applies them the way OpenHome does at boot: pactl, as the device's owner, in the
+        owner's own audio session. Returns what was applied; a failure is logged, never silent.
+        """
+        if os.environ.get("OPENFILE_AUDIO", "1") == "0" or not levels or not shutil.which("pactl"):
+            return []
+        try:
+            uid = pathlib.Path(self.device_home).stat().st_uid
+        except OSError:
+            return []
+        prefix = ["pactl"]
+        if os.geteuid() == 0 and uid != 0:
+            import pwd
+            prefix = ["runuser", "-u", pwd.getpwuid(uid).pw_name, "--",
+                      "env", f"XDG_RUNTIME_DIR=/run/user/{uid}", "pactl"]
+        applied = []
+        for key, (verb, target) in AUDIO_LEVELS.items():
+            if key not in levels:
+                continue
+            try:
+                level = int(str(levels[key]).strip())
+            except ValueError:
+                self.log(f"ATTENTION: {key}={levels[key]!r} is not a number; the mixer was left alone.")
+                continue
+            try:
+                r = subprocess.run(prefix + [verb, target, f"{level}%"], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    applied.append(key)
+                else:
+                    self.log(f"ATTENTION: {key} is saved but could not be applied now: {(r.stderr or r.stdout).strip()[:120]}")
+            except (OSError, subprocess.TimeoutExpired) as e:
+                self.log(f"ATTENTION: {key} is saved but could not be applied now: {e}")
+        return applied
 
     def sync_wifi(self, wifi_file=None) -> tuple[bool, str]:
         """Join the network named in wifi.txt, then erase the password from the file."""

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Mic sensitivity and speaker volume take effect as soon as you change them. They were written to the device's settings file, but OpenHome only reads that file when it boots, so a new level waited for the next restart.
+
 ## 0.3.0
 
 - Installs through OpenHome. When the ability arrives from the marketplace or `openhome deploy`, the first "open file, turn on drive" fetches this release from GitHub and runs the installer on the device.

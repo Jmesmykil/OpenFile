@@ -104,6 +104,24 @@ class TestSecretsStayOnDevice(Sandbox):
         self.engine.sync_settings()
         self.assertEqual((self.home / ".env").read_text(), DEVICE_ENV.replace("MIC_SENSITIVITY=160", "MIC_SENSITIVITY=170"))
 
+    def test_a_level_written_to_env_is_applied_to_the_mixer_at_once(self):
+        from unittest import mock
+        config = self.drive / "config"
+        config.mkdir(parents=True)
+        (config / "settings.env").write_text("MIC_SENSITIVITY=170\nSPEAKER_VOLUME=53\n")
+        calls = []
+        ok = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.dict(os.environ, {"OPENFILE_AUDIO": "1"}), \
+             mock.patch.object(df.shutil, "which", return_value="/usr/bin/pactl"), \
+             mock.patch.object(df.subprocess, "run", side_effect=lambda cmd, **k: calls.append(cmd) or ok):
+            self.assertTrue(self.engine.sync_settings())
+        verbs = {tuple(c[-3:]) for c in calls}
+        self.assertIn(("set-source-volume", "@DEFAULT_SOURCE@", "170%"), verbs)
+        self.assertIn(("set-sink-volume", "@DEFAULT_SINK@", "53%"), verbs)
+
+    def test_audio_is_never_touched_under_the_test_sandbox(self):
+        self.assertEqual(self.engine.apply_audio_levels({"MIC_SENSITIVITY": "170"}), [])
+
     def test_parked_abilities_are_not_published(self):
         for name in ("weather", "weather.retired-20260101", "old.bak"):
             (self.caps / name).mkdir()
