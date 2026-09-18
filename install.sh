@@ -193,7 +193,7 @@ echo "==> Settings"
   echo "LOCAL_CAPABILITIES_DIR=$CAPS_DIR"
   echo "OPENFILE_MOUNT=$MOUNT"
   # Keep what the owner already chose.
-  grep -s -E '^OPENFILE_(WEB_TOKEN|GUEST|LOGIN|ALLOW_SELF_EDIT)=' "$DEFAULTS" || true
+  grep -s -E '^OPENFILE_(WEB_TOKEN|GUEST|LOGIN|ALLOW_SELF_EDIT|EXTENDED_LEVELS)=' "$DEFAULTS" || true
 } > "$DEFAULTS.new"
 mv "$DEFAULTS.new" "$DEFAULTS"
 chmod 600 "$DEFAULTS"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Re-running `install.sh` keeps `OPENFILE_EXTENDED_LEVELS` in `/etc/default/openfile`. 0.4.0 documented the setting and then dropped it on the next install.
+
 ## 0.4.0
 
 Made to meet OpenHome's rules for local abilities.

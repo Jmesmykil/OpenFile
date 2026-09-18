@@ -89,7 +89,7 @@ SKIP_ABILITY_PATTERNS = tuple(
     p.strip() for p in (os.environ.get("OPENFILE_SKIP_PATTERNS")
                         or "*.retired*,*.disabled,*.bak,*.old").split(",") if p.strip()
 )
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 # Where the rest of OpenFile comes from when only this file arrived. OpenHome
 # installs an ability's files onto the DevKit itself, but not the folders the
 # installer needs, so the first "turn on drive" fetches this release.
@@ -101,7 +101,7 @@ RELEASE_ASSET = f"openfile-device-{VERSION}.tar.gz"
 RELEASE_ARCHIVE = os.environ.get("OPENFILE_RELEASE_ARCHIVE") or \
     f"https://github.com/Jmesmykil/OpenFile/releases/download/v{VERSION}/{RELEASE_ASSET}"
 RELEASE_SHA256 = os.environ.get("OPENFILE_RELEASE_SHA256") or \
-    "bff589fc300d2fa9782d4736a2a7a0f8f419efbcf0f3976a62d66f2658aee258"
+    "7ec47f4392e42323646f23a9b2aa93fb27757bf101242eb52a9b0086f5712688"
 SERVICES = ("openfile-sync", "openfile-web")
 DISCOVERY_SERVICES = ("avahi-daemon", "wsdd2")
 

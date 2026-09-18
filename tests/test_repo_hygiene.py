@@ -76,3 +76,20 @@ class TestRepoHygiene(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOwnerSettingsSurviveAReinstall(unittest.TestCase):
+    """Every setting the README tells an owner to put in /etc/default/openfile is kept when
+    install.sh rebuilds that file. OPENFILE_EXTENDED_LEVELS was documented and then dropped
+    by the next install, which reset a tuned microphone's limit without a word."""
+
+    def test_documented_settings_are_kept(self):
+        import re
+        root = pathlib.Path(__file__).resolve().parent.parent
+        readme = (root / "README.md").read_text()
+        documented = set(re.findall(r"`(OPENFILE_[A-Z_]+)(?:=[^`]*)?` (?:in|to) `/etc/default/openfile`", readme))
+        self.assertIn("OPENFILE_EXTENDED_LEVELS", documented, "the README no longer documents it")
+        kept = re.search(r"\^OPENFILE_\(([A-Z_|]+)\)=", (root / "install.sh").read_text())
+        self.assertIsNotNone(kept, "install.sh no longer keeps owner settings at all")
+        kept = {"OPENFILE_" + k for k in kept.group(1).split("|")}
+        self.assertEqual(documented - kept, set())
