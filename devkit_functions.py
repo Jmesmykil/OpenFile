@@ -83,6 +83,12 @@ SKIP_ABILITY_PATTERNS = tuple(
     p.strip() for p in (os.environ.get("OPENFILE_SKIP_PATTERNS") or
                         "*.retired*,*.disabled,*.bak,*.old").split(",") if p.strip()
 )
+VERSION = "0.3.0"
+# Where the rest of OpenFile comes from when only this file arrived. OpenHome
+# installs an ability's files onto the DevKit itself, but not the folders the
+# installer needs, so the first "turn on drive" fetches this release.
+RELEASE_ARCHIVE = os.environ.get("OPENFILE_RELEASE_ARCHIVE") or \
+    f"https://github.com/Jmesmykil/OpenFile/archive/refs/tags/v{VERSION}.tar.gz"
 SERVICES = ("openfile-sync", "openfile-web")
 DISCOVERY_SERVICES = ("avahi-daemon", "wsdd2")
 
@@ -1277,8 +1283,85 @@ def mount_volume() -> None:
                        check=True, capture_output=True)
 
 
+def is_installed() -> bool:
+    return os.path.exists(DEFAULTS_FILE)
+
+
+def ability_dir() -> pathlib.Path:
+    return pathlib.Path(os.path.dirname(os.path.abspath(__file__)))
+
+
+def safe_extract(archive: pathlib.Path, into: pathlib.Path) -> int:
+    """Extract a release archive into the ability folder, minus its top-level folder.
+
+    Refuses links and any member whose path would leave the folder.
+    """
+    import tarfile
+    count = 0
+    root = into.resolve()
+    with tarfile.open(archive, "r:gz") as tar:
+        for member in tar.getmembers():
+            parts = pathlib.PurePosixPath(member.name).parts
+            if len(parts) < 2 or ".." in parts:
+                continue
+            rel = pathlib.PurePosixPath(*parts[1:])
+            target = (root / rel).resolve()
+            if target != root and root not in target.parents:
+                continue
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif member.isfile():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with tar.extractfile(member) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                if member.mode & 0o111:
+                    os.chmod(target, 0o755)
+                count += 1
+    return count
+
+
+def fetch_release(into: pathlib.Path) -> int:
+    """Download this version's release and extract it beside this file."""
+    import urllib.request
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+        with urllib.request.urlopen(RELEASE_ARCHIVE, timeout=60) as response:
+            shutil.copyfileobj(response, tmp)
+        path = tmp.name
+    try:
+        return safe_extract(pathlib.Path(path), into)
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(path)
+
+
+def first_time_setup() -> str:
+    """Run once on a DevKit that got OpenFile through OpenHome rather than make install.
+
+    Returns a spoken sentence, or '' when there was nothing to do.
+    """
+    if is_installed():
+        return ""
+    folder = ability_dir()
+    installer = folder / "install.sh"
+    if not installer.exists():
+        try:
+            fetched = fetch_release(folder)
+        except Exception as e:
+            return f"Open file could not fetch its files. Check the device's internet connection. {e}"
+        if not installer.exists():
+            return f"Open file fetched {fetched} files but the installer was not among them."
+    os.chmod(installer, 0o755)
+    subprocess.Popen(["/bin/bash", str(installer)], cwd=str(folder), start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return "Setting open file up for the first time. Give it a minute, then say open file, status."
+
+
 def enable_drive(*_):
     """Mount the volume and fill it from the device."""
+    setup = first_time_setup()
+    if setup:
+        _emit_success(setup, {"first_time_setup": True})
+        return
     try:
         mount_volume()
         scaffold_drive_tree(pathlib.Path(DRIVE_MOUNT), caps_dir=CAPS_DIR, device_home=DEVICE_HOME)

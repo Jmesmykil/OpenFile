@@ -67,7 +67,19 @@ From then on the share asks for `openhome` and that password, and guests are tur
 
 ## Install
 
-You need a DevKit you can reach over SSH, and the OpenHome CLI if you also want to register the voice commands.
+There are two ways. Through OpenHome is the one most people want.
+
+### Through OpenHome
+
+Install OpenFile from the OpenHome marketplace onto your agent, or deploy it with `openhome deploy`. OpenHome puts the ability's files on your DevKit. Then say:
+
+> open file, turn on drive
+
+The first time, the DevKit fetches the rest of this release from GitHub, sets itself up, and says so. Give it a minute, then say "open file, status". From then on the drive is on at every boot. The DevKit needs internet for that first step only.
+
+### From this repository
+
+For working on OpenFile itself. You need a DevKit you can reach over SSH.
 
 ```bash
 git clone https://github.com/Jmesmykil/OpenFile.git

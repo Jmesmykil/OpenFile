@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Installs through OpenHome. When the ability arrives from the marketplace or `openhome deploy`, the first "open file, turn on drive" fetches this release from GitHub and runs the installer on the device.
+
 ## 0.2.3
 
 - README: the share has now been opened and written to from a Linux machine, and says so.

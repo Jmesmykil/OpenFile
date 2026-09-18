@@ -245,3 +245,58 @@ class TestGuards(Sandbox):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFirstTimeSetup(Sandbox):
+    """OpenHome delivers an ability's files, not the installer's folders. The first call fetches them."""
+
+    def release_tarball(self, with_installer=True):
+        import io
+        import tarfile
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            def add(name, text, mode=0o644):
+                data = text.encode()
+                info = tarfile.TarInfo(f"OpenFile-0.3.0/{name}")
+                info.size, info.mode = len(data), mode
+                tar.addfile(info, io.BytesIO(data))
+            if with_installer:
+                add("install.sh", "#!/bin/bash\necho installed > installed.marker\n", 0o755)
+            add("samba/openfile.conf", "[OpenFile]\n")
+            add("../escape.sh", "echo no\n")
+            link = tarfile.TarInfo("OpenFile-0.3.0/evil"); link.type = tarfile.SYMTYPE; link.linkname = "/etc/passwd"
+            tar.addfile(link)
+        return buffer.getvalue()
+
+    def test_a_bare_ability_folder_fetches_the_release_and_runs_the_installer(self):
+        folder = self.tmp / "openfile"
+        folder.mkdir()
+        (folder / "devkit_functions.py").write_text("# the one file OpenHome delivered\n")
+        fake = mock.MagicMock()
+        fake.__enter__.return_value = io_bytes = __import__("io").BytesIO(self.release_tarball())
+        launched = []
+        with mock.patch.object(df, "DEFAULTS_FILE", str(self.tmp / "absent-defaults")), \
+                mock.patch.object(df, "ability_dir", return_value=folder), \
+                mock.patch("urllib.request.urlopen", return_value=fake), \
+                mock.patch.object(df.subprocess, "Popen", side_effect=lambda cmd, **kw: launched.append(cmd)):
+            spoken = df.first_time_setup()
+        self.assertIn("first time", spoken)
+        self.assertTrue((folder / "install.sh").is_file())
+        self.assertTrue((folder / "samba" / "openfile.conf").is_file())
+        self.assertFalse((self.tmp / "escape.sh").exists(), "no member may leave the ability folder")
+        self.assertFalse((folder / "evil").exists(), "links are never extracted")
+        self.assertEqual(launched, [["/bin/bash", str(folder / "install.sh")]])
+
+    def test_an_installed_device_does_nothing(self):
+        with mock.patch.object(df, "DEFAULTS_FILE", str(self.home / ".env")):  # any existing file
+            self.assertEqual(df.first_time_setup(), "")
+
+    def test_a_failed_fetch_is_explained_not_hidden(self):
+        folder = self.tmp / "openfile"
+        folder.mkdir()
+        with mock.patch.object(df, "DEFAULTS_FILE", str(self.tmp / "absent-defaults")), \
+                mock.patch.object(df, "ability_dir", return_value=folder), \
+                mock.patch("urllib.request.urlopen", side_effect=OSError("no route to host")):
+            spoken = df.first_time_setup()
+        self.assertIn("internet", spoken)
+        self.assertFalse((folder / "install.sh").exists())
