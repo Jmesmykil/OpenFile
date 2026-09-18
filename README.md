@@ -179,7 +179,7 @@ On the DevKit the USB-C port is the power input, and OpenFile does not use it. A
 
 On a DevKit over Wi-Fi, from a Mac: the network share appearing under Network and opening as Guest and as `openhome`; setting a password of your own and going back to the default; folders copied in from Finder; the web page; voice routing; sync in both directions; undo; reseed; settings; the installer. The stress test below covers most of that, and the share and web page were also checked from a second computer. The DevKit answers the discovery probe Windows sends, checked from a Mac and from the device itself, but no Windows, Linux, iOS or Android machine has opened the share yet.
 
-A physical flash drive has been tried as far as detection and mounting, with a read-only drive that had nothing to install. Installing an ability from a writable flash drive, and anything over the Ethernet port, have not been tried on hardware. If you try either, `openfile health` and the sync log are the first places to look.
+A flash drive in a USB-A port has been tried end to end: a read-only installer stick was detected, mounted and left alone; a FAT32 stick got the backup written to it, an ability installed from it, a broken one refused, and a clean eject. The Ethernet port has not been tried on hardware. If you try it, `openfile health` and the sync log are the first places to look.
 
 ## Tests
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- README: the flash drive path has now been tried end to end on hardware, and says so.
+
 ## 0.2.0
 
 - The drive announces itself, so it appears under Network on macOS, Windows and Linux without an address being typed.
