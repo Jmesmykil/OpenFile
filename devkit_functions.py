@@ -40,12 +40,12 @@ DEVICE_HOME = os.environ.get("OPENHOME_DEVICE_HOME") or "/home/openhome"
 DRIVE_MOUNT = os.environ.get("OPENFILE_MOUNT") or "/mnt/openfile"
 DRIVE_IMG = os.environ.get("OPENFILE_IMG") or "/var/lib/openhome/openfile.img"
 USB_EXTERNAL_MOUNT = os.environ.get("OPENFILE_USB_MOUNT") or "/mnt/openfile_usb"
-CAPS_DIR = (os.environ.get("LOCAL_CAPABILITIES_DIR") or
-            os.path.join(DEVICE_HOME, "openhome_devkit/local_capabilities"))
-CHIME_SUCCESS = (os.environ.get("OPENFILE_CHIME_SUCCESS") or
-                 os.path.join(DEVICE_HOME, "openhome_devkit/audio_files/audio_complete.mp3"))
-CHIME_DECLINE = (os.environ.get("OPENFILE_CHIME_DECLINE") or
-                 os.path.join(DEVICE_HOME, "openhome_devkit/audio_files/general_error.mp3"))
+CAPS_DIR = (os.environ.get("LOCAL_CAPABILITIES_DIR")
+            or os.path.join(DEVICE_HOME, "openhome_devkit/local_capabilities"))
+CHIME_SUCCESS = (os.environ.get("OPENFILE_CHIME_SUCCESS")
+                 or os.path.join(DEVICE_HOME, "openhome_devkit/audio_files/audio_complete.mp3"))
+CHIME_DECLINE = (os.environ.get("OPENFILE_CHIME_DECLINE")
+                 or os.path.join(DEVICE_HOME, "openhome_devkit/audio_files/general_error.mp3"))
 LOCK_FILE = os.environ.get("OPENFILE_LOCK") or "/run/openfile.lock"
 PID_FILE = os.environ.get("OPENFILE_PID") or "/run/openfile-sync.pid"
 STATE_FILE = os.environ.get("OPENFILE_STATE") or "/var/lib/openhome/openfile-state.json"
@@ -86,15 +86,22 @@ SETTINGS_KEYS = (
 
 # Ability folders matching these patterns are parked copies, not live abilities.
 SKIP_ABILITY_PATTERNS = tuple(
-    p.strip() for p in (os.environ.get("OPENFILE_SKIP_PATTERNS") or
-                        "*.retired*,*.disabled,*.bak,*.old").split(",") if p.strip()
+    p.strip() for p in (os.environ.get("OPENFILE_SKIP_PATTERNS")
+                        or "*.retired*,*.disabled,*.bak,*.old").split(",") if p.strip()
 )
-VERSION = "0.3.2"
+VERSION = "0.4.0"
 # Where the rest of OpenFile comes from when only this file arrived. OpenHome
 # installs an ability's files onto the DevKit itself, but not the folders the
 # installer needs, so the first "turn on drive" fetches this release.
+# Everything the device needs beyond the two files OpenHome delivers, as one release asset
+# (tools/release_asset.py builds it, byte for byte the same each time). Its SHA-256 is pinned
+# here and checked before a single file in it is extracted or run: a download that does not
+# match is refused. The asset leaves out this file, so the pin never depends on itself.
+RELEASE_ASSET = f"openfile-device-{VERSION}.tar.gz"
 RELEASE_ARCHIVE = os.environ.get("OPENFILE_RELEASE_ARCHIVE") or \
-    f"https://github.com/Jmesmykil/OpenFile/archive/refs/tags/v{VERSION}.tar.gz"
+    f"https://github.com/Jmesmykil/OpenFile/releases/download/v{VERSION}/{RELEASE_ASSET}"
+RELEASE_SHA256 = os.environ.get("OPENFILE_RELEASE_SHA256") or \
+    "bff589fc300d2fa9782d4736a2a7a0f8f419efbcf0f3976a62d66f2658aee258"
 SERVICES = ("openfile-sync", "openfile-web")
 DISCOVERY_SERVICES = ("avahi-daemon", "wsdd2")
 
@@ -105,16 +112,48 @@ SNAPSHOT_KEEP = int(os.environ.get("OPENFILE_SNAPSHOT_KEEP") or 30)
 BACKUP_KEEP = int(os.environ.get("OPENFILE_BACKUP_KEEP") or 30)
 LOW_SPACE_MB = 50
 
+
+def _own_folder() -> str:
+    """The ability folder this file belongs to, wherever this copy of it is running.
+
+    OpenHome's stock node server does not run an ability's file where it lies: it copies
+    it to openhome_devkit/devkit_functions.py and runs the copy, which every other local
+    ability overwrites in turn. Taken from __file__, the folder was then openhome_devkit
+    itself, and a first "turn on drive" from the marketplace would have unpacked the
+    release there and treated the whole home folder as the abilities folder. The folder is
+    the one under the local capabilities directory that holds this same file.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    if os.path.realpath(os.path.dirname(here)) == os.path.realpath(CAPS_DIR) \
+            or os.path.isfile(os.path.join(here, "systemd", "openfile-sync.service")):
+        return here                              # its own folder: installed, or a full checkout
+    try:
+        with open(os.path.abspath(__file__), "rb") as mine:
+            me = mine.read()
+        for entry in sorted(os.listdir(CAPS_DIR)):
+            candidate = os.path.join(CAPS_DIR, entry, "devkit_functions.py")
+            if os.path.isfile(candidate):
+                with open(candidate, "rb") as theirs:
+                    if theirs.read() == me:
+                        return os.path.join(CAPS_DIR, entry)
+    except OSError:
+        pass                                     # no capabilities folder: the default below
+    return os.path.join(CAPS_DIR, "openfile")
+
+
 # OpenFile is the tool a user recovers with. Edits to its own folder are held
 # back unless the owner has said otherwise in /etc/default/openfile.
-SELF_NAME = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+SELF_NAME = os.path.basename(_own_folder())
 ALLOW_SELF_EDIT = os.environ.get("OPENFILE_ALLOW_SELF_EDIT", "0") == "1"
 
 # What each tuning key may hold. A value outside this is not applied.
 ON_OFF = ("true", "false")
+# OpenHome's own controls stop the speaker at 80 and the microphone at 100, and so does
+# this by default. An owner who has tuned a device past that says so once, in
+# /etc/default/openfile (OPENFILE_EXTENDED_LEVELS=1), and gets 100 and 200.
 SETTINGS_RULES = {
-    "SPEAKER_VOLUME": (0, 100),
-    "MIC_SENSITIVITY": (0, 200),
+    "SPEAKER_VOLUME": (0, 80),
+    "MIC_SENSITIVITY": (0, 100),
     "INTERRUPTION_SENSITIVITY": (0, 100),
     "AUTO_INTERRUPT": ON_OFF,
     "INTERACTIVE_INTERRUPT": ON_OFF,
@@ -137,6 +176,8 @@ def keep_newest(folder: pathlib.Path, keep: int) -> int:
 def check_setting(key: str, value: str) -> str:
     """Return '' when the value is acceptable, otherwise what it should have been."""
     rule = SETTINGS_RULES.get(key)
+    if os.environ.get("OPENFILE_EXTENDED_LEVELS", "0") == "1":
+        rule = {"SPEAKER_VOLUME": (0, 100), "MIC_SENSITIVITY": (0, 200)}.get(key, rule)
     if rule is ON_OFF:
         return "" if value.lower() in ON_OFF else "true or false"
     low, high = rule
@@ -144,7 +185,6 @@ def check_setting(key: str, value: str) -> str:
         return "" if low <= int(value) <= high else f"a whole number from {low} to {high}"
     except ValueError:
         return f"a whole number from {low} to {high}"
-
 
 
 # ── Drive Scaffold ────────────────────────────────────────────────────────────
@@ -364,9 +404,10 @@ def probe_device_info(root_path, device_home: str = DEVICE_HOME) -> dict:
         "architecture": uname.machine,
         "kernel": uname.release,
         "firmware": env.get("FIRMWARE_VERSION", ""),
-        "default_agent_id": env.get("DEFAULT_AGENT", ""),
-        "wifi_ssid": active_wifi_ssid(),
-        "interfaces": network_interfaces(),
+        # Guests can read this file. The agent id, the Wi-Fi name and the hardware (MAC)
+        # addresses identify the owner and the house, and nothing on the volume needs them.
+        "interfaces": {name: {k: v for k, v in info.items() if k != "mac"}
+                       for name, info in network_interfaces().items()},
         "storage_mount": str(root_path),
         "storage_size_mb": size_mb,
         "last_updated": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -885,7 +926,8 @@ class DriveSyncEngine:
         req_file = pathlib.Path(req_file)
         stamp_file = req_file.parent / ".requirements.hash"
         try:
-            wanted = [l for l in _read_text(req_file).splitlines() if l.strip() and not l.strip().startswith("#")]
+            wanted = [line for line in _read_text(req_file).splitlines()
+                      if line.strip() and not line.strip().startswith("#")]
             if not wanted:
                 return ""
             curr_hash = hashlib.sha256(req_file.read_bytes()).hexdigest()
@@ -1181,7 +1223,10 @@ class DriveSyncEngine:
         mount_dir.mkdir(parents=True, exist_ok=True)
 
         if not any(line.split()[1:2] == [str(mount_dir)] for line in _read_text("/proc/mounts").splitlines()):
-            res = subprocess.run(["mount", part_to_mount, str(mount_dir)], capture_output=True, text=True)
+            # A stick from anywhere: nothing on it may run as a program, act as a device, or
+            # carry set-user-id rights onto the DevKit. Files are read and copied, nothing more.
+            res = subprocess.run(["mount", "-o", "nosuid,nodev,noexec", part_to_mount, str(mount_dir)],
+                                 capture_output=True, text=True)
             if res.returncode != 0:
                 self.log(f"Failed to mount {part_to_mount}: {res.stderr.strip()}")
                 return {"success": False, "error": f"Mount failed: {res.stderr.strip()}"}
@@ -1280,7 +1325,6 @@ class DriveSyncEngine:
             return {"success": False, "error": f"Failed to unmount: {res.stderr}"}
 
 
-
 # ── Hardware Actions & JSON Output ───────────────────────────────────────────
 
 def _emit_success(spoken: str, data: dict = None):
@@ -1340,7 +1384,7 @@ def is_installed() -> bool:
 
 
 def ability_dir() -> pathlib.Path:
-    return pathlib.Path(os.path.dirname(os.path.abspath(__file__)))
+    return pathlib.Path(_own_folder())
 
 
 def safe_extract(archive: pathlib.Path, into: pathlib.Path) -> int:
@@ -1357,6 +1401,8 @@ def safe_extract(archive: pathlib.Path, into: pathlib.Path) -> int:
             if len(parts) < 2 or ".." in parts:
                 continue
             rel = pathlib.PurePosixPath(*parts[1:])
+            if str(rel) == "devkit_functions.py":
+                continue                         # OpenHome delivered this one; never replaced from outside
             target = (root / rel).resolve()
             if target != root and root not in target.parents:
                 continue
@@ -1372,14 +1418,27 @@ def safe_extract(archive: pathlib.Path, into: pathlib.Path) -> int:
     return count
 
 
+class ReleaseMismatch(Exception):
+    """The downloaded device files are not the ones this version pins."""
+
+
 def fetch_release(into: pathlib.Path) -> int:
-    """Download this version's release and extract it beside this file."""
+    """Download this version's device files, check them against the pinned SHA-256, and
+    extract them into the ability folder. A mismatch extracts nothing and runs nothing."""
     import urllib.request
+    digest = hashlib.sha256()
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
         with urllib.request.urlopen(RELEASE_ARCHIVE, timeout=60) as response:
-            shutil.copyfileobj(response, tmp)
+            while True:
+                chunk = response.read(1 << 16)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                tmp.write(chunk)
         path = tmp.name
     try:
+        if digest.hexdigest() != RELEASE_SHA256:
+            raise ReleaseMismatch(f"expected {RELEASE_SHA256[:12]}, got {digest.hexdigest()[:12]}")
         return safe_extract(pathlib.Path(path), into)
     finally:
         with contextlib.suppress(OSError):
@@ -1398,6 +1457,9 @@ def first_time_setup() -> str:
     if not installer.exists():
         try:
             fetched = fetch_release(folder)
+        except ReleaseMismatch as e:
+            return ("Open file downloaded its files but they were not the ones this version expects, "
+                    f"so nothing was installed. {e}")
         except Exception as e:
             return f"Open file could not fetch its files. Check the device's internet connection. {e}"
         if not installer.exists():
@@ -1426,7 +1488,44 @@ def enable_drive(*_):
         _emit_error("enable_failed", str(e), "Open file could not turn the drive on.")
 
 
+def _within_the_call(worker: str, still: str) -> None:
+    """Run `worker`, a registered function, in its own session. Its reply is passed on when it
+    finishes inside the call budget; otherwise the device says it is still working, and the
+    work carries on out of reach of OpenHome's 15 second kill."""
+    try:
+        child = subprocess.Popen([sys.executable, str(ability_dir() / "devkit_functions.py"), worker],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                 start_new_session=True)
+        try:
+            out, _ = child.communicate(timeout=CALL_BUDGET_SECONDS)
+        except subprocess.TimeoutExpired:
+            _emit_success(still, {"running": True, "pid": child.pid})
+            return
+        lines = [line for line in (out or "").splitlines() if line.strip()]
+        if lines:
+            print(lines[-1])
+        else:
+            _emit_error("worker_silent", f"{worker} returned nothing", "Open file did not finish that.")
+    except Exception as e:
+        _emit_error("worker_failed", str(e), "Open file could not start that.")
+
+
 def disable_drive(*_):
+    """Apply pending edits, then unmount; within the call, or reported as still running."""
+    _within_the_call("_disable_drive_now", "Still turning the drive off. It will finish on its own.")
+
+
+def undo_last_change(*_):
+    """Reverse the most recent change; within the call, or reported as still running."""
+    _within_the_call("_undo_now", "Still undoing that. It will finish on its own.")
+
+
+def sync_usb(*_):
+    """Exchange files with a flash drive; within the call, or reported as still running."""
+    _within_the_call("_sync_usb_now", "Still reading the flash drive. It will finish on its own.")
+
+
+def _disable_drive_now(*_):
     """Apply pending edits, then unmount."""
     try:
         if is_drive_mounted():
@@ -1459,7 +1558,7 @@ def _sync_and_report(reseed: bool):
         _emit_error("not_mounted", "Drive is not mounted", "The drive is off. Say open file, turn on drive.")
         return
     try:
-        child = subprocess.Popen([sys.executable, os.path.abspath(__file__), "_sync_worker", "reseed" if reseed else "sync"],
+        child = subprocess.Popen([sys.executable, str(ability_dir() / "devkit_functions.py"), "_sync_worker", "reseed" if reseed else "sync"],
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
         try:
             out, _ = child.communicate(timeout=CALL_BUDGET_SECONDS)
@@ -1520,7 +1619,7 @@ def reseed_drive(*_):
     _sync_and_report(reseed=True)
 
 
-def undo_last_change(*_):
+def _undo_now(*_):
     """Reverse the most recent change OpenFile made to the device."""
     try:
         result = DriveSyncEngine(drive_path=DRIVE_MOUNT, caps_dir=CAPS_DIR).undo_last()
@@ -1674,7 +1773,7 @@ def get_ports(*_):
         _emit_error("ports_query_failed", str(e))
 
 
-def sync_usb(*_):
+def _sync_usb_now(*_):
     """Exchange files with a flash drive in a USB-A port."""
     try:
         result = DriveSyncEngine().sync_external_usb()
@@ -1701,7 +1800,7 @@ def eject_usb(*_):
 
 def load_web_portal():
     """Import device/web_portal.py, which sits beside this file."""
-    device_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "device")
+    device_dir = str(ability_dir() / "device")
     if device_dir not in sys.path:
         sys.path.insert(0, device_dir)
     import web_portal
@@ -1992,7 +2091,26 @@ def health(*_):
     _emit_success(spoken, data)
 
 
+def uninstall(*_):
+    """Remove OpenFile's services, shares and discovery records. The volume image stays.
+
+    OpenHome has no uninstall hook, so this is how the root services leave with the
+    ability; they also stand down by themselves once the ability folder is gone
+    (ConditionPathExists in each unit). Runs detached: it outlives the 15 second call.
+    """
+    installer = ability_dir() / "install.sh"
+    if not installer.exists():
+        _emit_success("Open file was never set up on this device, so there is nothing to remove.",
+                      {"installed": False})
+        return
+    subprocess.Popen(["/bin/bash", str(installer), "--uninstall"], cwd=str(installer.parent),
+                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _emit_success("Removing open file's services and share. Your files on the volume stay.",
+                  {"uninstalling": True})
+
+
 FUNCTION_REGISTRY = {
+    "uninstall": uninstall,
     "enable_drive": enable_drive,
     "disable_drive": disable_drive,
     "sync_drive": sync_drive,
@@ -2009,6 +2127,9 @@ FUNCTION_REGISTRY = {
     "eject_usb": eject_usb,
     "web": web_portal,
     "_sync_worker": _sync_worker,
+    "_disable_drive_now": _disable_drive_now,
+    "_undo_now": _undo_now,
+    "_sync_usb_now": _sync_usb_now,
 }
 
 

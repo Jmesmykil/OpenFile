@@ -263,23 +263,40 @@ class TestFirstTimeSetup(Sandbox):
             if with_installer:
                 add("install.sh", "#!/bin/bash\necho installed > installed.marker\n", 0o755)
             add("samba/openfile.conf", "[OpenFile]\n")
+            add("devkit_functions.py", "# a replacement from outside: must never land\n")
             add("../escape.sh", "echo no\n")
             link = tarfile.TarInfo("OpenFile-0.3.0/evil"); link.type = tarfile.SYMTYPE; link.linkname = "/etc/passwd"
             tar.addfile(link)
         return buffer.getvalue()
 
-    def test_a_bare_ability_folder_fetches_the_release_and_runs_the_installer(self):
+    def _setup_with(self, archive: bytes, pinned: str):
         folder = self.tmp / "openfile"
-        folder.mkdir()
+        folder.mkdir(exist_ok=True)
         (folder / "devkit_functions.py").write_text("# the one file OpenHome delivered\n")
         fake = mock.MagicMock()
-        fake.__enter__.return_value = io_bytes = __import__("io").BytesIO(self.release_tarball())
+        fake.__enter__.return_value = __import__("io").BytesIO(archive)
         launched = []
         with mock.patch.object(df, "DEFAULTS_FILE", str(self.tmp / "absent-defaults")), \
+                mock.patch.object(df, "RELEASE_SHA256", pinned), \
                 mock.patch.object(df, "ability_dir", return_value=folder), \
                 mock.patch("urllib.request.urlopen", return_value=fake), \
                 mock.patch.object(df.subprocess, "Popen", side_effect=lambda cmd, **kw: launched.append(cmd)):
             spoken = df.first_time_setup()
+        return folder, spoken, launched
+
+    def test_a_download_that_is_not_the_pinned_one_installs_nothing(self):
+        archive = self.release_tarball()
+        folder, spoken, launched = self._setup_with(archive, "f" * 64)
+        self.assertIn("nothing was installed", spoken)
+        self.assertEqual(launched, [], "the installer never runs")
+        self.assertFalse((folder / "install.sh").exists(), "and nothing is extracted")
+
+    def test_a_bare_ability_folder_fetches_the_release_and_runs_the_installer(self):
+        import hashlib
+        archive = self.release_tarball()
+        folder, spoken, launched = self._setup_with(archive, hashlib.sha256(archive).hexdigest())
+        self.assertEqual((folder / "devkit_functions.py").read_text(), "# the one file OpenHome delivered\n",
+                         "the delivered file is never replaced by one from the archive")
         self.assertIn("first time", spoken)
         self.assertTrue((folder / "install.sh").is_file())
         self.assertTrue((folder / "samba" / "openfile.conf").is_file())
@@ -300,3 +317,73 @@ class TestFirstTimeSetup(Sandbox):
             spoken = df.first_time_setup()
         self.assertIn("internet", spoken)
         self.assertFalse((folder / "install.sh").exists())
+
+
+class TestRunFromACopy(unittest.TestCase):
+    """OpenHome's stock node server copies an ability's file to openhome_devkit/ and runs the
+    copy there. The copy must still find the ability's own folder, never openhome_devkit."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="openfile_copy_"))
+        self.caps = self.tmp / "openhome_devkit" / "local_capabilities"
+        source = pathlib.Path(df.__file__).read_bytes()
+        (self.caps / "SomeOtherAbility").mkdir(parents=True)
+        (self.caps / "SomeOtherAbility" / "devkit_functions.py").write_text("# another ability\n")
+        (self.caps / "OpenFile").mkdir()
+        (self.caps / "OpenFile" / "devkit_functions.py").write_bytes(source)
+        self.copy = self.tmp / "openhome_devkit" / "devkit_functions.py"
+        self.copy.write_bytes(source)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _folder_seen_from(self, path, caps):
+        import subprocess
+        probe = ("import runpy; m = runpy.run_path(%r, run_name='probe'); "
+                 "print(m['_own_folder']()); print(m['SELF_NAME'])" % str(path))
+        out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                             env={**os.environ, "LOCAL_CAPABILITIES_DIR": str(caps)}, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr[-500:])
+        return out.stdout.split()
+
+    def test_the_copy_finds_the_ability_folder(self):
+        folder, name = self._folder_seen_from(self.copy, self.caps)
+        self.assertEqual(folder, str(self.caps / "OpenFile"))
+        self.assertEqual(name, "OpenFile")
+
+    def test_the_file_in_its_own_folder_stays_there(self):
+        folder, _ = self._folder_seen_from(self.caps / "OpenFile" / "devkit_functions.py", self.caps)
+        self.assertEqual(folder, str(self.caps / "OpenFile"))
+
+    def test_with_no_copy_of_itself_anywhere_it_takes_the_default_folder(self):
+        folder, name = self._folder_seen_from(self.copy, self.tmp / "absent")
+        self.assertEqual((folder, name), (str(self.tmp / "absent" / "openfile"), "openfile"))
+
+
+class TestWithinTheCall(unittest.TestCase):
+    """OpenHome ends a capability call at 15 seconds: slow work answers in time or says so."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="openfile_call_"))
+        (self.tmp / "devkit_functions.py").write_text(
+            "import sys, time, json\n"
+            "if sys.argv[1] == 'slow':\n    time.sleep(3)\n"
+            "print(json.dumps({'success': True, 'spoken_response': sys.argv[1] + ' done'}))\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def said(self, worker):
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        with mock.patch.object(df, "ability_dir", return_value=self.tmp), \
+                mock.patch.object(df, "CALL_BUDGET_SECONDS", 1.0), redirect_stdout(out):
+            df._within_the_call(worker, "still going")
+        return json.loads(out.getvalue().strip().splitlines()[-1])["spoken_response"]
+
+    def test_quick_work_answers_itself(self):
+        self.assertEqual(self.said("fast"), "fast done")
+
+    def test_slow_work_says_it_is_still_going(self):
+        self.assertEqual(self.said("slow"), "still going")

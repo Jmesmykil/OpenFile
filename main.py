@@ -10,6 +10,8 @@ from src.agent.capability_worker import CapabilityWorker
 FLASH_WORDS = {"usb", "flash", "thumb", "stick"}
 EJECT_WORDS = {"eject", "unmount", "disconnect", "disable", "remove", "stop"}
 INTENT_RULES = (
+    # First, so "remove open file" is never read as the eject word "remove".
+    ("uninstall", {"uninstall"}, ("remove open file", "delete open file", "remove openfile")),
     ("undo_last_change", {"undo", "revert", "rollback"}, ("roll back", "take that back", "go back")),
     ("show_history", {"history"}, ("what changed", "what did i change")),
     ("reseed_drive", {"reseed", "repopulate", "rebuild", "restore"}, ("start over", "from scratch")),
@@ -55,8 +57,19 @@ class OpenFileCapability(MatchingCapability):
             if not transcript or not transcript.strip():
                 return
 
+            action = resolve_action(transcript)
+            if action == "uninstall":
+                # Removing services and shares is asked about first, out loud, every time.
+                reply = await self.capability_worker.run_io_loop(
+                    "That removes open file's services and network share from this device. "
+                    "Your files on the volume stay. Say yes to remove it.")
+                said = " ".join(re.findall(r"[a-z']+", str(reply or "").lower()))
+                if not re.fullmatch(r"(?:yes|yeah|yep|sure|ok|okay|do it|go ahead)(?: please)?", said):
+                    await self.capability_worker.speak("Okay, open file stays.")
+                    return
+
             result = await self.capability_worker.send_devkit_capability_action(
-                function_name=resolve_action(transcript),
+                function_name=action,
                 args=[],
                 timeout=15,  # the DevKit ends a capability call at 15 seconds
             )

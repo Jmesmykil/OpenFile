@@ -8,7 +8,7 @@ PYTHON ?= python3
 SSH = ssh $(DEVKIT_USER)@$(DEVKIT_HOST)
 SHIPPED = devkit_functions.py main.py config.json requirements.txt install.sh README.md CHANGELOG.md LICENSE __init__.py bin device systemd samba avahi tests
 
-.PHONY: all lint test validate deploy install uninstall stress-test device-test status ports clean
+.PHONY: all lint test validate package release-asset deploy install uninstall stress-test device-test status ports clean
 
 all: lint test validate
 
@@ -22,6 +22,17 @@ test:
 
 validate:
 	@openhome validate .
+
+# The six files OpenHome accepts for an upload, and nothing else.
+package: lint test
+	@rm -rf dist/openfile-upload && mkdir -p dist/openfile-upload
+	@cp main.py devkit_functions.py requirements.txt config.json README.md dist/openfile-upload/
+	@: > dist/openfile-upload/__init__.py
+	@echo "Upload these: dist/openfile-upload/"
+
+# The device files release asset for this version, and the SHA-256 to pin in devkit_functions.py.
+release-asset:
+	@$(PYTHON) tools/release_asset.py $$($(PYTHON) -c "import re;print(re.search(r'^VERSION = \"([^\"]+)\"', open('devkit_functions.py').read(), re.M).group(1))")
 
 deploy: lint test
 	@$(SSH) "mkdir -p $(DEVKIT_DIR)"

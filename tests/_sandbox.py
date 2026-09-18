@@ -54,4 +54,7 @@ os.environ.update({
     "OPENFILE_USB_SCAN": "0",
     "OPENFILE_CHIMES": "0",
     "OPENFILE_AUDIO": "0",
+    # The tests model a device tuned past OpenHome's own ranges, as the owner's is; the
+    # default ranges have their own test (TestLevelsFollowOpenHome).
+    "OPENFILE_EXTENDED_LEVELS": "1",
 })

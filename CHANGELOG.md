@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+Made to meet OpenHome's rules for local abilities.
+
+- Installing from the OpenHome marketplace works on a stock DevKit. OpenHome runs a copy of the ability's file from its own folder, and the first "turn on drive" used to set up there instead of in the ability's folder. OpenFile now finds its own folder under the local abilities directory.
+- The files downloaded on the first "turn on drive" are a release asset whose SHA-256 is pinned in `devkit_functions.py`. A download that does not match is refused and nothing is installed. The archive can never replace `devkit_functions.py`.
+- "open file, uninstall" asks first, then removes the services and the share. The volume stays. The services also stop by themselves once the ability folder is gone.
+- The speaker and microphone limits follow OpenHome's own controls, 80 and 100. `OPENFILE_EXTENDED_LEVELS=1` in `/etc/default/openfile` allows 100 and 200 on a device tuned past that.
+- `config/device_info.json` no longer holds the agent id, the Wi-Fi name or the network hardware addresses.
+- A flash drive is mounted with `nosuid,nodev,noexec`.
+- Turning the drive off, undo and a flash drive sync answer within OpenHome's 15 second limit, or say they are still working and finish on their own.
+- Every trigger phrase starts with "open file", apart from the two flash drive ones, so OpenFile does not answer something meant for another ability.
+- `make package` builds the six files OpenHome accepts for an upload. The code passes OpenHome's lint settings.
+
 ## 0.3.2
 
 - A settings file outside its owner's home, such as the stress suite's sandbox, no longer moves the live speaker or microphone. In 0.3.1 the stress suite's copy set the real speaker to its own level.

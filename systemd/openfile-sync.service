@@ -1,4 +1,6 @@
 [Unit]
+# Stands down by itself once the ability folder is gone: OpenHome has no uninstall hook.
+ConditionPathExists=@INSTALL_DIR@/devkit_functions.py
 Description=OpenFile sync watcher
 After=openfile-gadget.service
 Requires=openfile-gadget.service

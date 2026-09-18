@@ -1,4 +1,6 @@
 [Unit]
+# Stands down by itself once the ability folder is gone: OpenHome has no uninstall hook.
+ConditionPathExists=@INSTALL_DIR@/devkit_functions.py
 Description=OpenFile web page
 After=network.target openfile-gadget.service
 Wants=openfile-gadget.service

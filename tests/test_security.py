@@ -114,7 +114,7 @@ class TestSecretsStayOnDevice(Sandbox):
         import pwd
         me = pwd.getpwuid(os.getuid())
         owner_lives_here = mock.Mock(pw_name=me.pw_name, pw_dir=str(self.home))
-        with mock.patch.dict(os.environ, {"OPENFILE_AUDIO": "1"}), \
+        with mock.patch.dict(os.environ, {"OPENFILE_AUDIO": "1", "OPENFILE_EXTENDED_LEVELS": "1"}), \
              mock.patch.object(pwd, "getpwuid", return_value=owner_lives_here), \
              mock.patch.object(df.shutil, "which", return_value="/usr/bin/pactl"), \
              mock.patch.object(df.subprocess, "run", side_effect=lambda cmd, **k: calls.append(cmd) or ok):
@@ -263,3 +263,23 @@ class TestRequestOrigin(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLevelsFollowOpenHome(unittest.TestCase):
+    """Speaker and microphone stop where OpenHome's own controls stop, unless the owner says."""
+
+    def test_openhome_ranges_by_default(self):
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"OPENFILE_EXTENDED_LEVELS": "0"}):
+            self.assertEqual(df.check_setting("SPEAKER_VOLUME", "80"), "")
+            self.assertNotEqual(df.check_setting("SPEAKER_VOLUME", "81"), "")
+            self.assertEqual(df.check_setting("MIC_SENSITIVITY", "100"), "")
+            self.assertNotEqual(df.check_setting("MIC_SENSITIVITY", "170"), "")
+
+    def test_an_owner_who_tuned_past_them_can_say_so(self):
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"OPENFILE_EXTENDED_LEVELS": "1"}):
+            self.assertEqual(df.check_setting("MIC_SENSITIVITY", "170"), "")
+            self.assertEqual(df.check_setting("SPEAKER_VOLUME", "100"), "")
+            self.assertNotEqual(df.check_setting("MIC_SENSITIVITY", "201"), "")
+

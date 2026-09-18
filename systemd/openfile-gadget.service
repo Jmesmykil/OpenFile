@@ -1,4 +1,6 @@
 [Unit]
+# Stands down by itself once the ability folder is gone: OpenHome has no uninstall hook.
+ConditionPathExists=@INSTALL_DIR@/devkit_functions.py
 Description=OpenFile volume
 After=local-fs.target
 

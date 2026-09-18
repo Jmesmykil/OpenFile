@@ -72,6 +72,12 @@ EXPECTED = {
     "open file": "get_status",
     "": "get_status",
     "Open File, REFRESH!": "sync_drive",
+    # removing it is its own words, never the eject word "remove"
+    "open file uninstall": "uninstall",
+    "open file turn on drive": "enable_drive",
+    "open file turn off drive": "disable_drive",
+    "remove open file": "uninstall",
+    "remove the flash drive": "eject_usb",
 }
 
 
@@ -100,3 +106,47 @@ class TestVoiceRouting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUninstallIsAskedFirst(unittest.TestCase):
+    """Removing the services and share is confirmed out loud before anything is sent."""
+
+    class Worker:
+        def __init__(self, transcript, reply):
+            self.transcript, self.reply, self.did = transcript, reply, []
+
+        async def wait_for_complete_transcription(self):
+            return self.transcript
+
+        async def run_io_loop(self, question):
+            self.did.append(("ask", question))
+            return self.reply
+
+        async def send_devkit_capability_action(self, function_name, args, timeout=8):
+            self.did.append(("device", function_name))
+            return {"success": True, "output": json.dumps({"spoken_response": "Removing."})}
+
+        async def speak(self, text):
+            self.did.append(("speak", text))
+
+        def resume_normal_flow(self):
+            self.did.append(("resume",))
+
+    def run_with(self, reply):
+        import asyncio
+        cap = MAIN.OpenFileCapability.__new__(MAIN.OpenFileCapability)
+        cap.worker = None
+        cap.capability_worker = self.Worker("open file uninstall", reply)
+        asyncio.run(cap.handle_drive_action())
+        return cap.capability_worker.did
+
+    def test_yes_removes_it(self):
+        did = self.run_with("yes")
+        self.assertEqual([d for d in did if d[0] == "device"], [("device", "uninstall")])
+
+    def test_anything_else_keeps_it_and_sends_nothing(self):
+        for reply in ("no", "wait", "", "yes but not now"):
+            with self.subTest(reply=reply):
+                did = self.run_with(reply)
+                self.assertNotIn(("device", "uninstall"), did)
+                self.assertIn(("speak", "Okay, open file stays."), did)

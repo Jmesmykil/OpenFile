@@ -71,11 +71,21 @@ There are two ways. Through OpenHome is the one most people want.
 
 ### Through OpenHome
 
-Install OpenFile from the OpenHome marketplace onto your agent, or deploy it with `openhome deploy`. OpenHome puts the ability's files on your DevKit. Then say:
+Install OpenFile from the OpenHome marketplace onto your agent. OpenHome puts the ability's files on your DevKit. Then say:
 
 > open file, turn on drive
 
-The first time, the DevKit fetches the rest of this release from GitHub, sets itself up, and says so. Give it a minute, then say "open file, status". From then on the drive is on at every boot. The DevKit needs internet for that first step only.
+The first time, the DevKit downloads the rest of this release from GitHub, checks it against the SHA-256 written into `devkit_functions.py`, sets itself up, and says so. A download that does not match is refused and nothing is installed. Give it a minute, then say "open file, status". From then on the drive is on at every boot. The DevKit needs internet for that first step only.
+
+Everything OpenFile reaches over the network:
+
+| When | What | Why |
+|---|---|---|
+| First "turn on drive" | `github.com/Jmesmykil/OpenFile/releases/download/v<version>/openfile-device-<version>.tar.gz` | The installer, services and share settings, checked against the pinned SHA-256 |
+| First "turn on drive" | Debian package mirrors, through `apt` | Samba, Avahi and wsdd2, the share and its discovery |
+| An ability you add with a changed `requirements.txt` | PyPI, through `pip` | That ability's own packages |
+
+Nothing else leaves the device.
 
 ### From this repository
 
@@ -100,7 +110,7 @@ Options, passed as `make install INSTALL_FLAGS="..."` or straight to `install.sh
 | `--ethernet` | Switches on the wired port. The DevKit firmware ships with it switched off, Wi-Fi only. With this, a cable works alongside Wi-Fi |
 | `--uninstall` | Removes the services and shares. Your volume image is kept |
 
-To register the voice commands with your OpenHome account, run `openhome deploy` from this folder.
+To upload the ability to your OpenHome account yourself, run `make package` and upload the files in `dist/openfile-upload/` through the OpenHome web app. They are the six files OpenHome accepts: `main.py`, `devkit_functions.py`, `requirements.txt`, `config.json`, `README.md` and an empty `__init__.py`.
 
 ## Voice commands
 
@@ -118,8 +128,22 @@ Say "open file", then one of these.
 | "turn on drive" / "turn off drive" | Mounts or unmounts the volume |
 | "sync flash drive" / "eject flash drive" | Reads or releases a stick in a USB-A port |
 | "health" | Checks the installation |
+| "uninstall" | Asks first, then removes the services and the share. Your files on the volume stay |
 
 The same actions are on the command line as `openfile status`, `openfile refresh`, `openfile reseed`, `openfile restart` and so on. Run `openfile help` for the full list.
+
+### Trigger words
+
+Every command starts with "open file", so OpenFile does not answer something meant for another ability. The flash drive has two of its own: "sync flash drive" and "eject flash drive".
+
+### Example conversation
+
+> **You:** open file, turn on drive
+> **DevKit:** Setting open file up for the first time. Give it a minute, then say open file, status.
+> **You:** open file, status
+> **DevKit:** The drive has 812 megabytes free of 1003, with 27 abilities on it.
+> **You:** open file, undo
+> **DevKit:** Undone. weather is back to the previous version.
 
 ## How an edit reaches the device
 
@@ -138,7 +162,7 @@ Two things are deliberate:
 
 The DevKit runs `devkit_functions.py`. Edit that file and the next voice command uses your new code.
 
-`main.py` and `config.json`, which hold the trigger phrases and the conversation logic, run on OpenHome's side. OpenFile keeps the device copies in step, but OpenHome only picks up a change to those two files when you run `openhome deploy`.
+`main.py` and `config.json`, which hold the trigger phrases and the conversation logic, run on OpenHome's side. OpenFile keeps the device copies in step, but OpenHome only picks up a change to those two files when the ability is uploaded again.
 
 ### Agents
 
@@ -158,7 +182,7 @@ Undo exists for what a check cannot catch. OpenFile refuses Python that does not
 |---|---|---|
 | any `.py` in an ability | it must parse | nothing from that ability is sent, the device keeps running what it had |
 | any `.json` in an ability | it must load | the same |
-| `settings.env` | each value must be in range, for example volume 0 to 100 | that value is not applied, and the file is set back so it shows what the device has |
+| `settings.env` | each value must be in range: the speaker 0 to 80 and the microphone 0 to 100, as in OpenHome's own controls | that value is not applied, and the file is set back so it shows what the device has |
 | `wifi.txt` | the device must manage to join | it returns to the network it was on |
 
 **OpenFile protects itself.** Edits to `abilities/openfile/` are held back and kept in `backup/`, because a mistake there could take away undo. If you are working on OpenFile itself, add `OPENFILE_ALLOW_SELF_EDIT=1` to `/etc/default/openfile` on the device.
@@ -169,7 +193,9 @@ Undo exists for what a check cannot catch. OpenFile refuses Python that does not
 
 ## Settings and Wi-Fi
 
-`config/settings.env` carries six keys: `SPEAKER_VOLUME`, `MIC_SENSITIVITY`, `INTERRUPTION_SENSITIVITY`, `AUTO_INTERRUPT`, `INTERACTIVE_INTERRUPT` and `AUTOMATIC_LEDS_ON`. Change a value, save, and the device's `.env` gets that one line updated. Every other line in the device file, comments included, is left completely alone.
+`config/settings.env` carries six keys: `SPEAKER_VOLUME`, `MIC_SENSITIVITY`, `INTERRUPTION_SENSITIVITY`, `AUTO_INTERRUPT`, `INTERACTIVE_INTERRUPT` and `AUTOMATIC_LEDS_ON`. Change a value, save, and the device's `.env` gets that one line updated, and a new speaker or microphone level takes effect at once. Every other line in the device file, comments included, is left completely alone.
+
+The speaker and microphone stop where OpenHome's own controls stop, 80 and 100. If you have tuned a device past that on purpose, add `OPENFILE_EXTENDED_LEVELS=1` to `/etc/default/openfile` and the limits become 100 and 200.
 
 To move the DevKit to another network, fill in `SSID` and `PASSWORD` in `config/wifi.txt` and save. The password is erased from the file as soon as the join has been attempted, whether or not it worked.
 
@@ -198,7 +224,7 @@ A flash drive in a USB-A port has been tried end to end: a read-only installer s
 
 ```bash
 make test          # unit tests, run anywhere
-make validate      # the official OpenHome ability validator
+make validate      # the openhome CLI's ability checks, if you have the CLI installed
 make device-test   # the same unit tests, run on the DevKit
 make stress-test   # on the DevKit
 ```
