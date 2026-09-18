@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- README: the share has now been opened and written to from a Linux machine, and says so.
+
 ## 0.2.2
 
 - `install.sh --ethernet` switches on the DevKit's wired port, which its firmware ships switched off. Tested over a cable.
