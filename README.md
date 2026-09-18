@@ -197,7 +197,7 @@ Undo exists for what a check cannot catch. OpenFile refuses Python that does not
 
 The speaker and microphone stop where OpenHome's own controls stop, 80 and 100. If you have tuned a device past that on purpose, add `OPENFILE_EXTENDED_LEVELS=1` to `/etc/default/openfile` and the limits become 100 and 200.
 
-To move the DevKit to another network, fill in `SSID` and `PASSWORD` in `config/wifi.txt` and save. The password is erased from the file as soon as the join has been attempted, whether or not it worked.
+To move the DevKit to another network, fill in `SSID` and `PASSWORD` in `config/wifi.txt` and save. The password is erased from the file as soon as the join has been attempted, whether or not it worked. Until then, which is up to a minute, anyone who can open the share can read it, so do this on a network you trust, or set a share password first with `openfile password`.
 
 ## Security
 
