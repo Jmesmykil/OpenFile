@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- `install.sh --ethernet` switches on the DevKit's wired port, which its firmware ships switched off. Tested over a cable.
+
 ## 0.2.1
 
 - README: the flash drive path has now been tried end to end on hardware, and says so.

@@ -8,6 +8,7 @@
 #                                      (non-interactive: OPENFILE_SHARE_PASSWORD=... in the environment)
 #   sudo ./install.sh --no-password    back to no password, guest access on
 #   sudo ./install.sh --dev-shares     also share live abilities and the account home (needs a password)
+#   sudo ./install.sh --ethernet       switch on the wired port, which the DevKit firmware ships switched off
 #   sudo ./install.sh --uninstall      remove services and shares; the volume image is kept
 set -euo pipefail
 
@@ -19,7 +20,8 @@ SMB_INCLUDE=/etc/samba/openfile.conf
 SMB_DEV_INCLUDE=/etc/samba/openfile-dev.conf
 UNITS=(openfile-gadget openfile-sync openfile-web)
 
-GUEST=""; DEV_SHARES=no; UNINSTALL=no; WEB=no; LOGIN_ONLY=no
+GUEST=""; DEV_SHARES=no; UNINSTALL=no; WEB=no; LOGIN_ONLY=no; ETHERNET=no
+NM_ETHERNET=/etc/NetworkManager/conf.d/20-openfile-ethernet.conf
 AVAHI_SERVICE=/etc/avahi/services/openfile.service
 # Out of the box the share opens with this, and guests are let in too. It is
 # printed by the installer and written in the README on purpose: a published
@@ -33,6 +35,7 @@ for arg in "$@"; do
     --no-password)   GUEST=yes; LOGIN_ONLY=maybe ;;
     --dev-shares)    DEV_SHARES=yes ;;
     --web)           WEB=yes ;;
+    --ethernet)      ETHERNET=yes ;;
     --uninstall)     UNINSTALL=yes ;;
     -h|--help)       sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
@@ -154,6 +157,7 @@ if [ "$UNINSTALL" = yes ]; then
   remove_include "$SMB_DEV_INCLUDE"
   systemctl reload smbd 2>/dev/null || true
   rm -f /usr/local/bin/openfile "$DEFAULTS" "$AVAHI_SERVICE" /etc/systemd/system/wsdd2.service.d/openfile.conf
+  if [ -f "$NM_ETHERNET" ]; then rm -f "$NM_ETHERNET"; nmcli general reload conf 2>/dev/null || true; fi
   rm -rf --one-file-system "$STREAMS"
   systemctl reload avahi-daemon 2>/dev/null || true
   echo "OpenFile removed. The volume image was left in place."
@@ -231,6 +235,21 @@ echo "==> Network share"
 configure_login
 write_share
 
+if [ "$ETHERNET" = yes ]; then
+  echo "==> Wired port"
+  # The DevKit firmware ignores eth0 (WiFi only operation, in its own words)
+  # with a keyfile rule that a device section cannot outrank. A later file
+  # clears that same setting, and the port then gets an address the usual
+  # way. Wi-Fi keeps working alongside it.
+  printf '# OpenFile: the DevKit firmware ignores the wired port (10-ignore-eth0.conf, WiFi only).\n# A later file clears that setting, so the port is managed and gets an address.\n[keyfile]\nunmanaged-devices=\n' > "$NM_ETHERNET"
+  nmcli general reload conf 2>/dev/null || true
+  if nmcli -t -f DEVICE,STATE dev status 2>/dev/null | grep -q "^eth0:unmanaged"; then
+    systemctl restart NetworkManager
+    sleep 5
+  fi
+  nmcli dev connect eth0 >/dev/null 2>&1 || echo "    No link on the wired port yet. It will connect when a cable is in."
+fi
+
 echo "==> Discovery"
 WEB_SERVICE=""
 [ "$WEB" = yes ] && WEB_SERVICE="  <service>\n    <type>_http._tcp</type>\n    <port>8088</port>\n  </service>\n"
@@ -261,4 +280,5 @@ fi
 [ "$WEB" = yes ] && echo "  Web page        http://$HOST.local:8088"
 echo "  Flash drive     plug one into any USB-A port"
 [ "$DEV_SHARES" = yes ] && echo "  Developer       smb://$HOST.local/Abilities-Live and /DevKit-Home (login: $DEVICE_USER)"
+[ "$ETHERNET" = yes ] && echo "  Wired port      on. Both the cable and Wi-Fi reach the share."
 echo "  Command line    openfile status"

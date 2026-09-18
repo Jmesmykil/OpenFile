@@ -85,6 +85,7 @@ Options, passed as `make install INSTALL_FLAGS="..."` or straight to `install.sh
 | `--set-password` | Same as `openfile password`: the share asks for a password you choose, and guests are turned away |
 | `--no-password` | Back to the default: guests in, `openhome` with `admin` |
 | `--dev-shares` | Adds two more shares, `Abilities-Live` and `DevKit-Home`. These need a share password, and you are asked to set one |
+| `--ethernet` | Switches on the wired port. The DevKit firmware ships with it switched off, Wi-Fi only. With this, a cable works alongside Wi-Fi |
 | `--uninstall` | Removes the services and shares. Your volume image is kept |
 
 To register the voice commands with your OpenHome account, run `openhome deploy` from this folder.
@@ -177,9 +178,9 @@ On the DevKit the USB-C port is the power input, and OpenFile does not use it. A
 
 ## What has been tested
 
-On a DevKit over Wi-Fi, from a Mac: the network share appearing under Network and opening as Guest and as `openhome`; setting a password of your own and going back to the default; folders copied in from Finder; the web page; voice routing; sync in both directions; undo; reseed; settings; the installer. The stress test below covers most of that, and the share and web page were also checked from a second computer. The DevKit answers the discovery probe Windows sends, checked from a Mac and from the device itself, but no Windows, Linux, iOS or Android machine has opened the share yet.
+On a DevKit from a Mac, over Wi-Fi and over the wired port: the network share appearing under Network and opening as Guest and as `openhome`; setting a password of your own and going back to the default; folders copied in from Finder; the web page; voice routing; sync in both directions; undo; reseed; settings; the installer. The stress test below covers most of that, and the share and web page were also checked from a second computer. The DevKit answers the discovery probe Windows sends, checked from a Mac and from the device itself, but no Windows, Linux, iOS or Android machine has opened the share yet.
 
-A flash drive in a USB-A port has been tried end to end: a read-only installer stick was detected, mounted and left alone; a FAT32 stick got the backup written to it, an ability installed from it, a broken one refused, and a clean eject. The Ethernet port has not been tried on hardware. If you try it, `openfile health` and the sync log are the first places to look.
+A flash drive in a USB-A port has been tried end to end: a read-only installer stick was detected, mounted and left alone; a FAT32 stick got the backup written to it, an ability installed from it, a broken one refused, and a clean eject. The wired port needs `--ethernet`, because the DevKit firmware ships with it switched off; with that, the share and the web page were opened over a cable too.
 
 ## Tests
 
